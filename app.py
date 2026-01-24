@@ -89,6 +89,16 @@ def root():
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     try:
+        # Check if models are loaded
+        if models["autoencoder"] is None:
+            return {"error": "Autoencoder model not loaded. Please check server logs."}
+        
+        if models["yolo"] is None:
+            return {"error": "YOLO model not loaded. Please check server logs."}
+        
+        if models["xgb_v2"] is None:
+            return {"error": "XGBoost model not loaded. Please check server logs."}
+
         image_bytes = await file.read()
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         img_tensor = transform(img).unsqueeze(0).to(device)
@@ -104,7 +114,10 @@ async def predict(file: UploadFile = File(...)):
         recon_error = torch.mean((img_tensor - reconstructed) ** 2).item()
 
         # Step 2: YOLO detection
-        yolo_results = models["yolo"](io.BytesIO(image_bytes), verbose=False)
+        # Create fresh PIL image for YOLO
+        img_for_yolo = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        
+        yolo_results = models["yolo"](img_for_yolo, verbose=False)
         boxes = yolo_results[0].boxes
         names = yolo_results[0].names
 
