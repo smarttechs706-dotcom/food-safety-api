@@ -23,7 +23,7 @@ scikit-learn==1.5.2
 scipy==1.14.1
 setuptools==75.6.0
 starlette==0.41.3
-sympy==1.13.3
+sympy==1.13.1
 threadpoolctl==3.5.0
 torch==2.5.1
 torchvision==0.20.1
@@ -31,3 +31,4 @@ typing-inspection==0.4.2
 typing-extensions==4.12.2
 uvicorn==0.32.1
 xgboost==2.1.2
+ultralytics==8.3.0
