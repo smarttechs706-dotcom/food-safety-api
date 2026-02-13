@@ -207,8 +207,8 @@ async def models_info():
         ]
     }
 
+# ✅ FIXED: Read PORT from environment variable (required for Render)
 if __name__ == "__main__":
-    # Run the application - FIXED: Use dynamic PORT from Render
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(
         "app:app",
