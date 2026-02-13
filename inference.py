@@ -1,10 +1,23 @@
+import sys
 import torch
 import numpy as np
 from PIL import Image
 import torchvision.transforms as transforms
 from ultralytics import YOLO
 import joblib
-import os
+from sklearn.linear_model import LogisticRegression
+
+class FoodSafetyClassifier:
+    def __init__(self):
+        self.model = LogisticRegression()
+    
+    def predict_proba(self, X):
+        return self.model.predict_proba(X)
+    
+    def predict(self, X):
+        return self.model.predict(X)
+
+sys.modules['__main__'].FoodSafetyClassifier = FoodSafetyClassifier
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -12,9 +25,6 @@ transform = transforms.Compose([
     transforms.Resize((128, 128)),
     transforms.ToTensor()
 ])
-
-# Base directory — works both locally and inside Docker (/app)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class Autoencoder(torch.nn.Module):
     def __init__(self):
@@ -39,17 +49,15 @@ class Autoencoder(torch.nn.Module):
 
 # Load autoencoder model
 ae_model = Autoencoder().to(device)
-ae_model.load_state_dict(torch.load(
-    os.path.join(BASE_DIR, 'autoencoder.pth'), map_location=device
-))
+ae_model.load_state_dict(torch.load('autoencoder.pth', map_location=device))
 ae_model.eval()
 
 # Load YOLO model
-yolo_model = YOLO(os.path.join(BASE_DIR, 'best.pt'))
+yolo_model = YOLO('best.pt')
 
-# Load XGBoost classifiers
-xgb_v1 = joblib.load(os.path.join(BASE_DIR, 'best_image_classifier_98pct.pkl'))  # 98% accuracy
-xgb_v2 = joblib.load(os.path.join(BASE_DIR, 'best_text_classifier_87pct.pkl'))   # 87% accuracy
+# Load classifiers
+xgb_v1 = joblib.load('best_image_classifier_98pct.pkl')  # 98% accuracy
+xgb_v2 = joblib.load('best_text_classifier_87pct.pkl')   # 87% accuracy
 
 def advanced_inference(image_path, model='v2'):
     img = Image.open(image_path).convert("RGB")
