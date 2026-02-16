@@ -1,0 +1,10 @@
+*.pyc
+__pycache__
+.git
+.gitignore
+*.md
+.env
+node_modules
+.pytest_cache
+*.log
+uploaded_images
