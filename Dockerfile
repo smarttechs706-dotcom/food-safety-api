@@ -1,11 +1,10 @@
 FROM python:3.10
-
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies (updated package names for newer Debian)
 RUN apt-get update && \
     apt-get install -y \
-        libgl1-mesa-glx \
+        libgl1 \
         libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -29,7 +28,7 @@ COPY app.py .
 RUN mkdir -p uploaded_images
 
 EXPOSE 8000
-
 ENV PYTHONUNBUFFERED=1
 
-CMD uvicorn app:app --host 0.0.0.0 --port $PORT
+# Use shell form to expand $PORT variable
+CMD sh -c "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"
