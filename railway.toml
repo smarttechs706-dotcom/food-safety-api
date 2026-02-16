@@ -1,9 +1,5 @@
 [build]
-builder = "NIXPACKS"
-
-[build.nixpacksPlan.phases.setup]
-nixPkgs = ["python311"]
+builder = "DOCKERFILE"
 
 [deploy]
-startCommand = "uvicorn app:app --host 0.0.0.0 --port $PORT"
-restartPolicyType = "ON_FAILURE"
+startCommand = "python app.py"
