@@ -9,31 +9,16 @@ import joblib
 from sklearn.linear_model import LogisticRegression
 
 # ─── Keras Stub ───────────────────────────────────────────────────────────────
-# The .pkl files reference keras internally. We create a minimal stub so
-# pickle can deserialize them without a full Keras installation.
-
 def _make_keras_stub():
     keras = types.ModuleType("keras")
     for sub in [
-        "keras.engine",
-        "keras.engine.sequential",
-        "keras.engine.training",
-        "keras.layers",
-        "keras.layers.core",
-        "keras.layers.convolutional",
-        "keras.layers.pooling",
-        "keras.layers.recurrent",
-        "keras.layers.normalization",
-        "keras.layers.merge",
-        "keras.optimizers",
-        "keras.models",
-        "keras.utils",
-        "keras.utils.generic_utils",
-        "keras.src",
-        "keras.src.engine",
-        "keras.src.layers",
-        "keras.src.models",
-        "keras.src.optimizers",
+        "keras.engine", "keras.engine.sequential", "keras.engine.training",
+        "keras.layers", "keras.layers.core", "keras.layers.convolutional",
+        "keras.layers.pooling", "keras.layers.recurrent",
+        "keras.layers.normalization", "keras.layers.merge",
+        "keras.optimizers", "keras.models", "keras.utils",
+        "keras.utils.generic_utils", "keras.src", "keras.src.engine",
+        "keras.src.layers", "keras.src.models", "keras.src.optimizers",
         "keras.src.utils",
     ]:
         mod = types.ModuleType(sub)
@@ -43,7 +28,6 @@ def _make_keras_stub():
 _make_keras_stub()
 
 # ─── FoodSafetyClassifier stub ────────────────────────────────────────────────
-
 class FoodSafetyClassifier:
     def __init__(self):
         self.model = LogisticRegression()
@@ -57,7 +41,6 @@ class FoodSafetyClassifier:
 sys.modules['__main__'].FoodSafetyClassifier = FoodSafetyClassifier
 
 # ─── Device & transforms ──────────────────────────────────────────────────────
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 transform = transforms.Compose([
@@ -66,21 +49,16 @@ transform = transforms.Compose([
 ])
 
 # ─── Autoencoder ──────────────────────────────────────────────────────────────
-
 class Autoencoder(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.encoder = torch.nn.Sequential(
-            torch.nn.Conv2d(3, 32, 3, padding=1),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(32, 64, 3, padding=1),
-            torch.nn.ReLU()
+            torch.nn.Conv2d(3, 32, 3, padding=1), torch.nn.ReLU(),
+            torch.nn.Conv2d(32, 64, 3, padding=1), torch.nn.ReLU()
         )
         self.decoder = torch.nn.Sequential(
-            torch.nn.ConvTranspose2d(64, 32, 3, padding=1),
-            torch.nn.ReLU(),
-            torch.nn.ConvTranspose2d(32, 3, 3, padding=1),
-            torch.nn.Sigmoid()
+            torch.nn.ConvTranspose2d(64, 32, 3, padding=1), torch.nn.ReLU(),
+            torch.nn.ConvTranspose2d(32, 3, 3, padding=1), torch.nn.Sigmoid()
         )
 
     def forward(self, x):
@@ -89,7 +67,6 @@ class Autoencoder(torch.nn.Module):
         return x
 
 # ─── Load models ──────────────────────────────────────────────────────────────
-
 ae_model = Autoencoder().to(device)
 ae_model.load_state_dict(torch.load('autoencoder.pth', map_location=device))
 ae_model.eval()
@@ -114,11 +91,24 @@ def load_model(path):
     print(f"✅ Loaded model: {path}")
     return obj
 
-xgb_v1 = load_model('best_image_classifier_98pct.pkl')
-xgb_v2 = load_model('best_text_classifier_87pct.pkl')
+def load_text_model(path):
+    """Load a text model bundle (classifier + vectorizer)."""
+    obj = joblib.load(path)
+    classifier = obj.get('classifier') or obj.get('model')
+    vectorizer = obj.get('vectorizer')
+    threshold  = obj.get('threshold', 0.5)
+    print(f"✅ Loaded text model: {path}")
+    return classifier, vectorizer, threshold
 
-# ─── Inference ────────────────────────────────────────────────────────────────
+# ─── Image models ─────────────────────────────────────────────────────────────
+xgb_v1 = load_model('best_image_classifier_98pct.pkl')   # 98% — primary
+xgb_v2 = load_model('image_classifier_91pct.pkl')        # 91% — secondary
 
+# ─── Text models ──────────────────────────────────────────────────────────────
+text_clf_v1, text_vec_v1, text_thresh_v1 = load_text_model('best_text_classifier_87pct.pkl')   # 87%
+text_clf_v2, text_vec_v2, text_thresh_v2 = load_text_model('text_classifier_v2_80pct.pkl')     # 80%
+
+# ─── Image Inference ──────────────────────────────────────────────────────────
 def advanced_inference(image_path, model='v1'):
     img = Image.open(image_path).convert("RGB")
     img_tensor = transform(img).unsqueeze(0).to(device)
@@ -129,7 +119,6 @@ def advanced_inference(image_path, model='v1'):
 
     encoded_resized = torch.nn.functional.adaptive_avg_pool2d(encoded, (32, 32))
     latent_features = encoded_resized.flatten().cpu().numpy()
-
     recon_error = torch.mean((img_tensor - reconstructed) ** 2).item()
 
     results = yolo_model(image_path, verbose=False)
@@ -150,11 +139,8 @@ def advanced_inference(image_path, model='v1'):
         [recon_error, yolo_count, max_conf]
     ])
 
-    if model == 'v1':
-        prob = xgb_v1.predict_proba(final_features.reshape(1, -1))[0][1]
-    else:
-        prob = xgb_v2.predict_proba(final_features.reshape(1, -1))[0][1]
-
+    classifier = xgb_v1 if model == 'v1' else xgb_v2
+    prob = classifier.predict_proba(final_features.reshape(1, -1))[0][1]
     prediction = int(prob >= 0.5)
 
     risk_level = (
@@ -189,7 +175,42 @@ def advanced_inference(image_path, model='v1'):
         "Anomaly Level":            anomaly_level,
         "Decision Reasons":         reasons,
         "Recommended Action":       "Reject product" if prediction == 1 else "Approve product",
-        "Model Used":               model
+        "Model Used":               f"image_{model}"
+    }
+
+# ─── Text Inference ───────────────────────────────────────────────────────────
+def text_inference(description: str, model='v1'):
+    """
+    Classify food safety from a text description.
+    model='v1' uses best_text_classifier_87pct (87% accuracy)
+    model='v2' uses text_classifier_v2_80pct   (80% accuracy)
+    """
+    if not description or not description.strip():
+        return {"error": "Description cannot be empty"}
+
+    if model == 'v1':
+        classifier, vectorizer, threshold = text_clf_v1, text_vec_v1, text_thresh_v1
+    else:
+        classifier, vectorizer, threshold = text_clf_v2, text_vec_v2, text_thresh_v2
+
+    X = vectorizer.transform([description])
+    prob = classifier.predict_proba(X)[0][1]
+    prediction = int(prob >= threshold)
+
+    risk_level = (
+        "VERY HIGH" if prob > 0.85 else
+        "HIGH"      if prob > 0.65 else
+        "MEDIUM"    if prob > 0.45 else
+        "LOW"
+    )
+
+    return {
+        "Status":              "UNSAFE ⚠️" if prediction == 1 else "SAFE ✅",
+        "Risk Probability":    round(float(prob), 2),
+        "Risk Level":          risk_level,
+        "Recommended Action":  "Reject product" if prediction == 1 else "Approve product",
+        "Model Used":          f"text_{model}",
+        "Input Description":   description
     }
 
 
