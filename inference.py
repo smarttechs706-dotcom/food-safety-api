@@ -1,5 +1,4 @@
 import sys
-import os
 import torch
 import numpy as np
 from PIL import Image
@@ -7,10 +6,6 @@ import torchvision.transforms as transforms
 from ultralytics import YOLO
 import joblib
 from sklearn.linear_model import LogisticRegression
-
-# Fix slow startup caused by matplotlib and ultralytics config setup
-os.environ.setdefault("MPLCONFIGDIR", "/tmp")
-os.environ.setdefault("YOLO_CONFIG_DIR", "/tmp")
 
 class FoodSafetyClassifier:
     def __init__(self):
@@ -52,54 +47,36 @@ class Autoencoder(torch.nn.Module):
         x = self.decoder(x)
         return x
 
+# Load autoencoder model
+ae_model = Autoencoder().to(device)
+ae_model.load_state_dict(torch.load('autoencoder.pth', map_location=device))
+ae_model.eval()
 
-# ✅ Lazy loading — models are NOT loaded at startup
-# They load only when the first request comes in
-_ae_model = None
-_yolo_model = None
-_xgb_v1 = None
-_xgb_v2 = None
+# Load YOLO model
+yolo_model = YOLO('best.pt')
 
+# Load classifiers
+def load_model(path):
+    """Safely load a model - handles dict wrappers, pipelines, and plain models."""
+    obj = joblib.load(path)
+    # If it's a dict, try common keys
+    if isinstance(obj, dict):
+        for key in ['model', 'classifier', 'clf', 'estimator']:
+            if key in obj and hasattr(obj[key], 'predict_proba'):
+                print(f"✅ Loaded model from dict key: '{key}' in {path}")
+                return obj[key]
+        # Try first value that has predict_proba
+        for key, val in obj.items():
+            if hasattr(val, 'predict_proba'):
+                print(f"✅ Loaded model from dict key: '{key}' in {path}")
+                return val
+        raise ValueError(f"❌ Could not find a valid model in dict loaded from {path}. Keys: {list(obj.keys())}")
+    return obj
 
-def get_ae_model():
-    """Load autoencoder only when first needed"""
-    global _ae_model
-    if _ae_model is None:
-        _ae_model = Autoencoder().to(device)
-        _ae_model.load_state_dict(torch.load('autoencoder.pth', map_location=device))
-        _ae_model.eval()
-    return _ae_model
-
-
-def get_yolo_model():
-    """Load YOLO only when first needed"""
-    global _yolo_model
-    if _yolo_model is None:
-        _yolo_model = YOLO('best.pt')
-    return _yolo_model
-
-
-def get_xgb_v1():
-    """Load v1 classifier only when first needed"""
-    global _xgb_v1
-    if _xgb_v1 is None:
-        _xgb_v1 = joblib.load('best_image_classifier_98pct.pkl')
-    return _xgb_v1
-
-
-def get_xgb_v2():
-    """Load v2 classifier only when first needed"""
-    global _xgb_v2
-    if _xgb_v2 is None:
-        _xgb_v2 = joblib.load('best_text_classifier_87pct.pkl')
-    return _xgb_v2
-
+xgb_v1 = load_model('best_image_classifier_98pct.pkl')  # 98% accuracy
+xgb_v2 = load_model('best_text_classifier_87pct.pkl')   # 87% accuracy
 
 def advanced_inference(image_path, model='v2'):
-    # Load models on first call only
-    ae_model = get_ae_model()
-    yolo_model = get_yolo_model()
-
     img = Image.open(image_path).convert("RGB")
     img_tensor = transform(img).unsqueeze(0).to(device)
 
@@ -131,9 +108,9 @@ def advanced_inference(image_path, model='v2'):
     ])
 
     if model == 'v1':
-        prob = get_xgb_v1().predict_proba(final_features.reshape(1, -1))[0][1]
+        prob = xgb_v1.predict_proba(final_features.reshape(1, -1))[0][1]
     else:
-        prob = get_xgb_v2().predict_proba(final_features.reshape(1, -1))[0][1]
+        prob = xgb_v2.predict_proba(final_features.reshape(1, -1))[0][1]
 
     prediction = int(prob >= 0.5)
 
