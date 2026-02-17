@@ -1,4 +1,5 @@
 import sys
+import types
 import torch
 import numpy as np
 from PIL import Image
@@ -7,17 +8,55 @@ from ultralytics import YOLO
 import joblib
 from sklearn.linear_model import LogisticRegression
 
+# ─── Keras Stub ───────────────────────────────────────────────────────────────
+# The .pkl files reference keras internally. We create a minimal stub so
+# pickle can deserialize them without a full Keras installation.
+
+def _make_keras_stub():
+    keras = types.ModuleType("keras")
+    for sub in [
+        "keras.engine",
+        "keras.engine.sequential",
+        "keras.engine.training",
+        "keras.layers",
+        "keras.layers.core",
+        "keras.layers.convolutional",
+        "keras.layers.pooling",
+        "keras.layers.recurrent",
+        "keras.layers.normalization",
+        "keras.layers.merge",
+        "keras.optimizers",
+        "keras.models",
+        "keras.utils",
+        "keras.utils.generic_utils",
+        "keras.src",
+        "keras.src.engine",
+        "keras.src.layers",
+        "keras.src.models",
+        "keras.src.optimizers",
+        "keras.src.utils",
+    ]:
+        mod = types.ModuleType(sub)
+        sys.modules[sub] = mod
+    sys.modules["keras"] = keras
+
+_make_keras_stub()
+
+# ─── FoodSafetyClassifier stub ────────────────────────────────────────────────
+
 class FoodSafetyClassifier:
     def __init__(self):
         self.model = LogisticRegression()
-    
+
     def predict_proba(self, X):
         return self.model.predict_proba(X)
-    
+
     def predict(self, X):
         return self.model.predict(X)
 
 sys.modules['__main__'].FoodSafetyClassifier = FoodSafetyClassifier
+
+# ─── Device & transforms ──────────────────────────────────────────────────────
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -25,6 +64,8 @@ transform = transforms.Compose([
     transforms.Resize((128, 128)),
     transforms.ToTensor()
 ])
+
+# ─── Autoencoder ──────────────────────────────────────────────────────────────
 
 class Autoencoder(torch.nn.Module):
     def __init__(self):
@@ -47,36 +88,38 @@ class Autoencoder(torch.nn.Module):
         x = self.decoder(x)
         return x
 
-# Load autoencoder model
+# ─── Load models ──────────────────────────────────────────────────────────────
+
 ae_model = Autoencoder().to(device)
 ae_model.load_state_dict(torch.load('autoencoder.pth', map_location=device))
 ae_model.eval()
+print("✅ Autoencoder loaded")
 
-# Load YOLO model
 yolo_model = YOLO('best.pt')
+print("✅ YOLO loaded")
 
-# Load classifiers
 def load_model(path):
-    """Safely load a model - handles dict wrappers, pipelines, and plain models."""
+    """Safely load a model — handles plain models, dict wrappers, and pipelines."""
     obj = joblib.load(path)
-    # If it's a dict, try common keys
     if isinstance(obj, dict):
         for key in ['model', 'classifier', 'clf', 'estimator']:
             if key in obj and hasattr(obj[key], 'predict_proba'):
-                print(f"✅ Loaded model from dict key: '{key}' in {path}")
+                print(f"✅ Loaded model from dict key '{key}': {path}")
                 return obj[key]
-        # Try first value that has predict_proba
         for key, val in obj.items():
             if hasattr(val, 'predict_proba'):
-                print(f"✅ Loaded model from dict key: '{key}' in {path}")
+                print(f"✅ Loaded model from dict key '{key}': {path}")
                 return val
-        raise ValueError(f"❌ Could not find a valid model in dict loaded from {path}. Keys: {list(obj.keys())}")
+        raise ValueError(f"❌ No valid model found in dict from {path}. Keys: {list(obj.keys())}")
+    print(f"✅ Loaded model: {path}")
     return obj
 
-xgb_v1 = load_model('best_image_classifier_98pct.pkl')  # 98% accuracy
-xgb_v2 = load_model('best_text_classifier_87pct.pkl')   # 87% accuracy
+xgb_v1 = load_model('best_image_classifier_98pct.pkl')
+xgb_v2 = load_model('best_text_classifier_87pct.pkl')
 
-def advanced_inference(image_path, model='v2'):
+# ─── Inference ────────────────────────────────────────────────────────────────
+
+def advanced_inference(image_path, model='v1'):
     img = Image.open(image_path).convert("RGB")
     img_tensor = transform(img).unsqueeze(0).to(device)
 
@@ -116,13 +159,13 @@ def advanced_inference(image_path, model='v2'):
 
     risk_level = (
         "VERY HIGH" if prob > 0.85 else
-        "HIGH" if prob > 0.65 else
-        "MEDIUM" if prob > 0.45 else
+        "HIGH"      if prob > 0.65 else
+        "MEDIUM"    if prob > 0.45 else
         "LOW"
     )
 
     anomaly_level = (
-        "HIGH" if recon_error > 0.01 else
+        "HIGH"   if recon_error > 0.01  else
         "MEDIUM" if recon_error > 0.005 else
         "LOW"
     )
@@ -135,21 +178,19 @@ def advanced_inference(image_path, model='v2'):
     if not reasons:
         reasons.append("No risk indicators")
 
-    result = {
-        "Status": "UNSAFE ⚠️" if prediction == 1 else "SAFE ✅",
-        "Risk Probability": round(float(prob), 2),
-        "Risk Level": risk_level,
-        "YOLO Detections": yolo_count,
-        "Detected Objects": detected_objects,
+    return {
+        "Status":                   "UNSAFE ⚠️" if prediction == 1 else "SAFE ✅",
+        "Risk Probability":         round(float(prob), 2),
+        "Risk Level":               risk_level,
+        "YOLO Detections":          yolo_count,
+        "Detected Objects":         detected_objects,
         "Max Detection Confidence": round(max_conf, 2),
-        "Anomaly Score": round(recon_error, 4),
-        "Anomaly Level": anomaly_level,
-        "Decision Reasons": reasons,
-        "Recommended Action": "Reject product" if prediction == 1 else "Approve product",
-        "Model Used": model
+        "Anomaly Score":            round(recon_error, 4),
+        "Anomaly Level":            anomaly_level,
+        "Decision Reasons":         reasons,
+        "Recommended Action":       "Reject product" if prediction == 1 else "Approve product",
+        "Model Used":               model
     }
-
-    return result
 
 
 if __name__ == "__main__":
