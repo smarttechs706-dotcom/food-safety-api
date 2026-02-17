@@ -1,4 +1,4 @@
 [build]
-builder = "DOCKERFILE
+builder="DOCKERFILE"
 [deploy]
-startCommand = "python app.py"
+startCommand= "python app.py"
