@@ -2,12 +2,12 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 import shutil
 import os
 from pathlib import Path
 import uvicorn
-from inference import advanced_inference
+from inference import advanced_inference, text_inference
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ app.add_middleware(
 UPLOAD_DIR = Path("uploaded_images")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# ─── Response Model ───────────────────────────────────────────────────────────
+# ─── Response Models ──────────────────────────────────────────────────────────
 
 class PredictionResponse(BaseModel):
     Status: str
@@ -44,6 +44,10 @@ class PredictionResponse(BaseModel):
     Model_Used: str
     filename: str
 
+class TextRequest(BaseModel):
+    description: str
+    model: Optional[str] = 'v1'  # 'v1' = 87%, 'v2' = 80%
+
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -52,11 +56,14 @@ async def root():
         "message": "Food Safety Detection API",
         "version": "1.0.0",
         "endpoints": {
-            "/predict":    "POST - Upload image for safety prediction",
-            "/predict/v1": "POST - Upload image using model v1 (98% accuracy)",
-            "/predict/v2": "POST - Upload image using model v2 (87% accuracy)",
-            "/health":     "GET  - Check API health status",
-            "/docs":       "GET  - Interactive API documentation"
+            "/predict":       "POST - Upload image for safety prediction (v1, 98%)",
+            "/predict/v1":    "POST - Upload image using model v1 (98% accuracy)",
+            "/predict/v2":    "POST - Upload image using model v2 (91% accuracy)",
+            "/predict/text":  "POST - Classify food safety from text description",
+            "/predict/text/v2": "POST - Text classification using v2 model (80%)",
+            "/batch-predict": "POST - Upload multiple images",
+            "/health":        "GET  - Check API health status",
+            "/docs":          "GET  - Interactive API documentation"
         }
     }
 
@@ -68,20 +75,40 @@ async def health_check():
         "message": "All systems operational"
     }
 
+# ─── Image Endpoints ──────────────────────────────────────────────────────────
+
 @app.post("/predict", response_model=PredictionResponse)
 async def predict_default(file: UploadFile = File(...)):
-    """Predict food safety using model v1 (image classifier, 98% accuracy)"""
+    """Predict food safety using image model v1 (98% accuracy)"""
     return await predict_with_model(file, model='v1')
 
 @app.post("/predict/v1", response_model=PredictionResponse)
 async def predict_v1(file: UploadFile = File(...)):
-    """Predict food safety using model v1 (best_image_classifier_98pct)"""
+    """Predict food safety using image model v1 (98% accuracy)"""
     return await predict_with_model(file, model='v1')
 
 @app.post("/predict/v2", response_model=PredictionResponse)
 async def predict_v2(file: UploadFile = File(...)):
-    """Predict food safety using model v2 (best_text_classifier_87pct)"""
+    """Predict food safety using image model v2 (91% accuracy)"""
     return await predict_with_model(file, model='v2')
+
+# ─── Text Endpoints ───────────────────────────────────────────────────────────
+
+@app.post("/predict/text")
+async def predict_text_v1(request: TextRequest):
+    """Classify food safety from a text description using text model v1 (87% accuracy)"""
+    result = text_inference(request.description, model='v1')
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return JSONResponse(content=result)
+
+@app.post("/predict/text/v2")
+async def predict_text_v2(request: TextRequest):
+    """Classify food safety from a text description using text model v2 (80% accuracy)"""
+    result = text_inference(request.description, model='v2')
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return JSONResponse(content=result)
 
 # ─── Helper ───────────────────────────────────────────────────────────────────
 
@@ -150,19 +177,29 @@ async def batch_predict(files: List[UploadFile] = File(...), model: str = 'v1'):
 @app.get("/models/info")
 async def models_info():
     return {
-        "models": {
-            "v1": {"name": "best_image_classifier_98pct.pkl", "accuracy": "98%", "type": "XGBoost Image Classifier"},
-            "v2": {"name": "best_text_classifier_87pct.pkl",  "accuracy": "87%", "type": "XGBoost Text Classifier"}
+        "image_models": {
+            "v1": {"name": "best_image_classifier_98pct.pkl", "accuracy": "98%", "type": "Logistic Regression Image Classifier"},
+            "v2": {"name": "image_classifier_91pct.pkl",      "accuracy": "91%", "type": "Logistic Regression Image Classifier"}
+        },
+        "text_models": {
+            "v1": {"name": "best_text_classifier_87pct.pkl",  "accuracy": "87%", "type": "Logistic Regression + TF-IDF Text Classifier"},
+            "v2": {"name": "text_classifier_v2_80pct.pkl",    "accuracy": "80%", "type": "Logistic Regression + TF-IDF Text Classifier"}
         },
         "supporting_models": {
             "autoencoder": "autoencoder.pth - Feature extraction and anomaly detection",
             "yolo":        "best.pt - Object detection for contamination"
         },
-        "pipeline": [
-            "1. Autoencoder extracts latent features and computes reconstruction error",
-            "2. YOLO detects visible contamination objects",
-            "3. XGBoost classifier combines features for final prediction"
-        ]
+        "pipeline": {
+            "image": [
+                "1. Autoencoder extracts latent features and computes reconstruction error",
+                "2. YOLO detects visible contamination objects",
+                "3. LogisticRegression classifier combines features for final prediction"
+            ],
+            "text": [
+                "1. TF-IDF vectorizer converts text description to features",
+                "2. LogisticRegression classifies food safety from text"
+            ]
+        }
     }
 
 # ─── Entry Point ──────────────────────────────────────────────────────────────
