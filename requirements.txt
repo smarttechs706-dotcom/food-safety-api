@@ -1,5 +1,4 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
-
 anyio==4.6.2
 click==8.1.7
 colorama==0.4.6
@@ -31,3 +30,5 @@ typing-extensions==4.12.2
 uvicorn==0.32.1
 xgboost==2.1.2
 ultralytics==8.3.55
+keras==3.6.0
+tensorflow-cpu==2.18.0
