@@ -3,6 +3,7 @@ import types
 import torch
 import numpy as np
 from PIL import Image
+import cv2
 import torchvision.transforms as transforms
 from ultralytics import YOLO
 import joblib
@@ -48,7 +49,7 @@ transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
-# ─── Autoencoder ──────────────────────────────────────────────────────────────
+# ─── Autoencoder (kept for anomaly detection only) ───────────────────────────
 class Autoencoder(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -108,19 +109,41 @@ xgb_v2 = load_model('image_classifier_91pct.pkl')        # 91% — secondary
 text_clf_v1, text_vec_v1, text_thresh_v1 = load_text_model('best_text_classifier_87pct.pkl')   # 87%
 text_clf_v2, text_vec_v2, text_thresh_v2 = load_text_model('text_classifier_v2_80pct.pkl')     # 80%
 
+# ─── Extract features the SAME way as training ───────────────────────────────
+def extract_features(image_path):
+    """Extract features EXACTLY like training: resize to 224x224, flatten, normalize"""
+    img = cv2.imread(image_path)
+    if img is None:
+        raise ValueError(f"Could not read image: {image_path}")
+    
+    # Convert BGR to RGB
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    
+    # Resize to 224x224 (same as training)
+    img = cv2.resize(img, (224, 224))
+    
+    # Flatten to 1D array
+    features = img.flatten()
+    
+    # Normalize
+    features = features / 255.0
+    
+    return features
+
 # ─── Image Inference ──────────────────────────────────────────────────────────
 def advanced_inference(image_path, model='v1'):
+    # Extract features the same way as training
+    final_features = extract_features(image_path)
+    
+    # Get anomaly score and YOLO detection for additional info
     img = Image.open(image_path).convert("RGB")
     img_tensor = transform(img).unsqueeze(0).to(device)
-
+    
     with torch.no_grad():
-        encoded = ae_model.encoder(img_tensor)
         reconstructed = ae_model(img_tensor)
-
-    encoded_resized = torch.nn.functional.adaptive_avg_pool2d(encoded, (4, 5))
-    latent_features = encoded_resized.flatten().cpu().numpy()
+    
     recon_error = torch.mean((img_tensor - reconstructed) ** 2).item()
-
+    
     results = yolo_model(image_path, verbose=False)
     boxes = results[0].boxes
     names = results[0].names
@@ -133,9 +156,6 @@ def advanced_inference(image_path, model='v1'):
         yolo_count = len(boxes)
         max_conf = float(boxes.conf.max())
         detected_objects = list(set([names[int(c)] for c in boxes.cls]))
-
-    # ✅ Use ONLY the latent features (1280 features total, no extras)
-    final_features = latent_features
 
     classifier = xgb_v1 if model == 'v1' else xgb_v2
     prob = classifier.predict_proba(final_features.reshape(1, -1))[0][1]
@@ -168,7 +188,7 @@ def advanced_inference(image_path, model='v1'):
         "Risk Level":               risk_level,
         "YOLO Detections":          yolo_count,
         "Detected Objects":         detected_objects,
-        "Max Detection Confidence": round(max_conf, 2),
+        "Max_Detection_Confidence": round(max_conf, 2),
         "Anomaly Score":            round(recon_error, 4),
         "Anomaly Level":            anomaly_level,
         "Decision Reasons":         reasons,
