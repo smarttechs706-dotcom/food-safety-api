@@ -117,7 +117,7 @@ def advanced_inference(image_path, model='v1'):
         encoded = ae_model.encoder(img_tensor)
         reconstructed = ae_model(img_tensor)
 
-    encoded_resized = torch.nn.functional.adaptive_avg_pool2d(encoded, (5, 4))
+    encoded_resized = torch.nn.functional.adaptive_avg_pool2d(encoded, (4, 5))
     latent_features = encoded_resized.flatten().cpu().numpy()
     recon_error = torch.mean((img_tensor - reconstructed) ** 2).item()
 
@@ -134,10 +134,8 @@ def advanced_inference(image_path, model='v1'):
         max_conf = float(boxes.conf.max())
         detected_objects = list(set([names[int(c)] for c in boxes.cls]))
 
-    final_features = np.concatenate([
-        latent_features,
-        [recon_error, yolo_count, max_conf]
-    ])
+    # ✅ Use ONLY the latent features (1280 features total, no extras)
+    final_features = latent_features
 
     classifier = xgb_v1 if model == 'v1' else xgb_v2
     prob = classifier.predict_proba(final_features.reshape(1, -1))[0][1]
