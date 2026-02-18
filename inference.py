@@ -117,7 +117,7 @@ def advanced_inference(image_path, model='v1'):
         encoded = ae_model.encoder(img_tensor)
         reconstructed = ae_model(img_tensor)
 
-    encoded_resized = torch.nn.functional.adaptive_avg_pool2d(encoded, (4, 4))
+    encoded_resized = torch.nn.functional.adaptive_avg_pool2d(encoded, (5, 4))
     latent_features = encoded_resized.flatten().cpu().numpy()
     recon_error = torch.mean((img_tensor - reconstructed) ** 2).item()
 
