@@ -45,14 +45,12 @@ sys.modules['__main__'].FoodSafetyClassifier = FoodSafetyClassifier
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ─── MobileNetV2 Feature Extractor ────────────────────────────────────────────
-# Models were trained using MobileNetV2 features (1280-dim output)
 mobilenet = torchvision_models.mobilenet_v2(weights='IMAGENET1K_V1')
 mobilenet.classifier = torch.nn.Identity()  # Remove classifier → outputs 1280 features
 mobilenet = mobilenet.to(device)
 mobilenet.eval()
 print("✅ MobileNetV2 feature extractor loaded")
 
-# MobileNetV2 requires 224x224 + ImageNet normalization
 mobilenet_transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
@@ -144,13 +142,26 @@ def advanced_inference(image_path, model='v1'):
         "LOW"
     )
 
+    # ─── FIXED: Decision reasons now reflect actual prediction ────────────────
     reasons = []
     if yolo_count > 0:
-        reasons.append("Visible contamination detected")
+        reasons.append(f"Visible contamination detected ({yolo_count} object(s))")
     if anomaly_level == "HIGH":
-        reasons.append("Abnormal texture / internal structure")
-    if not reasons:
-        reasons.append("No risk indicators")
+        reasons.append("Abnormal texture / internal structure detected")
+    if anomaly_level == "MEDIUM" and prediction == 1:
+        reasons.append("Unusual visual patterns detected")
+    if prob > 0.85:
+        reasons.append("AI model detected high-risk food characteristics")
+    elif prob > 0.65:
+        reasons.append("AI model detected unsafe food patterns")
+    elif prob > 0.45:
+        reasons.append("AI model detected borderline food safety indicators")
+
+    # If SAFE and no specific reasons, confirm it's clean
+    if prediction == 0 and not reasons:
+        reasons.append("No risk indicators found")
+    elif prediction == 0 and reasons:
+        reasons = ["No significant risk indicators"]
 
     return {
         "Status":                   "UNSAFE ⚠️" if prediction == 1 else "SAFE ✅",
