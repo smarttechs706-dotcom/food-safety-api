@@ -1,5 +1,5 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -75,6 +75,10 @@ async def health_check():
         "models_loaded": True,
         "message": "All systems operational"
     }
+
+@app.head("/health")
+async def health_check_head():
+    return Response(status_code=200)
 
 # ─── Image Endpoints ──────────────────────────────────────────────────────────
 
