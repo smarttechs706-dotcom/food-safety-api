@@ -1,6 +1,7 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Security
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 from typing import List, Optional
 import shutil
@@ -28,6 +29,19 @@ app.add_middleware(
 UPLOAD_DIR = Path("uploaded_images")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+# ─── API Key Auth ─────────────────────────────────────────────────────────────
+
+API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
+VALID_API_KEY = os.environ.get("API_KEY", "foodsafety-secret-key-2025")
+
+async def verify_api_key(api_key: str = Security(API_KEY_HEADER)):
+    if api_key != VALID_API_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid or missing API key. Access denied."
+        )
+    return api_key
+
 # ─── Response Models ──────────────────────────────────────────────────────────
 
 class PredictionResponse(BaseModel):
@@ -46,7 +60,7 @@ class PredictionResponse(BaseModel):
 
 class TextRequest(BaseModel):
     description: str
-    model: Optional[str] = 'v1'  # 'v1' = 87%, 'v2' = 80%
+    model: Optional[str] = 'v1'
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
@@ -83,24 +97,36 @@ async def health_check_head():
 # ─── Image Endpoints ──────────────────────────────────────────────────────────
 
 @app.post("/predict", response_model=PredictionResponse)
-async def predict_default(file: UploadFile = File(...)):
+async def predict_default(
+    file: UploadFile = File(...),
+    api_key: str = Security(verify_api_key)
+):
     """Predict food safety using image model v1 (98% accuracy)"""
     return await predict_with_model(file, model='v1')
 
 @app.post("/predict/v1", response_model=PredictionResponse)
-async def predict_v1(file: UploadFile = File(...)):
+async def predict_v1(
+    file: UploadFile = File(...),
+    api_key: str = Security(verify_api_key)
+):
     """Predict food safety using image model v1 (98% accuracy)"""
     return await predict_with_model(file, model='v1')
 
 @app.post("/predict/v2", response_model=PredictionResponse)
-async def predict_v2(file: UploadFile = File(...)):
+async def predict_v2(
+    file: UploadFile = File(...),
+    api_key: str = Security(verify_api_key)
+):
     """Predict food safety using image model v2 (91% accuracy)"""
     return await predict_with_model(file, model='v2')
 
 # ─── Text Endpoints ───────────────────────────────────────────────────────────
 
 @app.post("/predict/text")
-async def predict_text_v1(request: TextRequest):
+async def predict_text_v1(
+    request: TextRequest,
+    api_key: str = Security(verify_api_key)
+):
     """Classify food safety from a text description using text model v1 (87% accuracy)"""
     result = text_inference(request.description, model='v1')
     if "error" in result:
@@ -108,7 +134,10 @@ async def predict_text_v1(request: TextRequest):
     return JSONResponse(content=result)
 
 @app.post("/predict/text/v2")
-async def predict_text_v2(request: TextRequest):
+async def predict_text_v2(
+    request: TextRequest,
+    api_key: str = Security(verify_api_key)
+):
     """Classify food safety from a text description using text model v2 (80% accuracy)"""
     result = text_inference(request.description, model='v2')
     if "error" in result:
@@ -165,7 +194,11 @@ async def predict_with_model(file: UploadFile, model: str = 'v1'):
 # ─── Batch ────────────────────────────────────────────────────────────────────
 
 @app.post("/batch-predict")
-async def batch_predict(files: List[UploadFile] = File(...), model: str = 'v1'):
+async def batch_predict(
+    files: List[UploadFile] = File(...),
+    model: str = 'v1',
+    api_key: str = Security(verify_api_key)
+):
     """Predict food safety for multiple images (max 10)"""
     if len(files) > 10:
         raise HTTPException(status_code=400, detail="Maximum 10 files allowed per batch")
